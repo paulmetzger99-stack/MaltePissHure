@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hitster">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Hitster</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root { --bg:#111; --fg:#f2f2f2; --muted:#9a9a9a; --accent:#ff2e7e; --card:#1e1e1e; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  body { padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom); display:flex; flex-direction:column; }
+  .screen { display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:18px; text-align:center; }
+  .screen.active { display:flex; }
+  h1 { margin:0; font-size:32px; letter-spacing:1px; }
+  p { margin:0; color:var(--muted); line-height:1.4; max-width:340px; }
+  button { font:inherit; font-size:20px; font-weight:600; border:0; border-radius:14px; padding:16px 28px;
+    background:var(--accent); color:#fff; min-width:220px; }
+  button.secondary { background:var(--card); color:var(--fg); }
+  button:active { opacity:.7; }
+  input { font:inherit; font-size:16px; width:100%; max-width:340px; padding:12px; border-radius:10px;
+    border:1px solid #333; background:var(--card); color:var(--fg); }
+  code { font-size:13px; background:var(--card); padding:8px; border-radius:8px; word-break:break-all; display:block; max-width:340px; }
+  #reader { width:100%; max-width:420px; border-radius:14px; overflow:hidden; }
+  #error { display:none; background:#5a1a1a; color:#ffd6d6; padding:12px; border-radius:10px; margin-top:12px; text-align:center; }
+  .note { font-size:13px; }
+  .pulse { font-size:96px; animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform:scale(1.15); } }
+  .paused .pulse { animation:none; opacity:.4; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+  .row button { min-width:150px; }
+  .link { background:none; color:var(--muted); font-size:14px; font-weight:400; min-width:0; padding:8px; text-decoration:underline; }
+</style>
+</head>
+<body>
+<div id="error"></div>
+
+<!-- First start: enter Spotify client ID -->
+<section class="screen" id="s-setup">
+  <h1>Setup</h1>
+  <p>Spotify Client ID aus dem Developer Dashboard eintragen.</p>
+  <input id="clientId" placeholder="Client ID" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <p class="note">Diese Redirect URI muss im Dashboard eingetragen sein:</p>
+  <code id="redirectUri"></code>
+  <button id="saveSetup">Speichern</button>
+</section>
+
+<!-- Login -->
+<section class="screen" id="s-login">
+  <h1>Hitster</h1>
+  <p>Mit Spotify (Premium) anmelden.</p>
+  <button id="loginBtn">Mit Spotify anmelden</button>
+  <button class="link" id="resetBtn">Client ID ändern</button>
+</section>
+
+<!-- Ready to scan -->
+<section class="screen" id="s-home">
+  <h1>Hitster</h1>
+  <p>Spotify-App einmal öffnen, dann Karte scannen.</p>
+  <button id="scanBtn">Karte scannen</button>
+  <button class="link" id="logoutBtn">Abmelden</button>
+</section>
+
+<!-- Camera -->
+<section class="screen" id="s-scan">
+  <div id="reader"></div>
+  <button class="secondary" id="cancelScan">Abbrechen</button>
+</section>
+
+<!-- Playing -->
+<section class="screen" id="s-play">
+  <div class="pulse">♪</div>
+  <p id="playState">Läuft…</p>
+  <div class="row">
+    <button class="secondary" id="toggleBtn">Pause</button>
+    <button id="nextBtn">Nächste Karte</button>
+  </div>
+</section>
+
+<script>
+const SCOPES = "user-modify-playback-state user-read-playback-state";
+const REDIRECT_URI = location.origin + location.pathname;
+const API = "https://api.spotify.com/v1";
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} },
+};
+const $ = id => document.getElementById(id);
+let scanner = null, paused = false;
+
+function show(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $(id).classList.add("active");
+}
+function showError(msg) {
+  const e = $("error");
+  e.textContent = msg;
+  e.style.display = msg ? "block" : "none";
+}
+
+// ---------- Spotify auth (PKCE, no server needed) ----------
+function randomString(len) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  return Array.from(bytes, b => chars[b % chars.length]).join("");
+}
+async function sha256base64url(str) {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function login() {
+  const verifier = randomString(64);
+  store.set("hs_verifier", verifier);
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: store.get("hs_client_id"),
+    scope: SCOPES,
+    redirect_uri: REDIRECT_URI,
+    code_challenge_method: "S256",
+    code_challenge: await sha256base64url(verifier),
+  });
+  location.href = "https://accounts.spotify.com/authorize?" + params;
+}
+function saveTokens(t) {
+  store.set("hs_access", t.access_token);
+  if (t.refresh_token) store.set("hs_refresh", t.refresh_token);
+  store.set("hs_expires", String(Date.now() + (t.expires_in - 60) * 1000));
+}
+async function tokenRequest(body) {
+  const r = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: store.get("hs_client_id"), ...body }),
+  });
+  if (!r.ok) throw new Error("Anmeldung fehlgeschlagen (" + r.status + ")");
+  saveTokens(await r.json());
+}
+async function handleRedirect() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("code") && !q.has("error")) return;
+  history.replaceState(null, "", REDIRECT_URI);
+  if (q.has("error")) throw new Error("Spotify-Anmeldung abgebrochen");
+  await tokenRequest({
+    grant_type: "authorization_code",
+    code: q.get("code"),
+    redirect_uri: REDIRECT_URI,
+    code_verifier: store.get("hs_verifier"),
+  });
+}
+async function accessToken() {
+  if (Date.now() > Number(store.get("hs_expires") || 0)) {
+    await tokenRequest({ grant_type: "refresh_token", refresh_token: store.get("hs_refresh") });
+  }
+  return store.get("hs_access");
+}
+async function api(method, path, body, retry = true) {
+  const r = await fetch(API + path, {
+    method,
+    headers: { Authorization: "Bearer " + await accessToken(), "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401 && retry) {
+    store.set("hs_expires", "0");
+    return api(method, path, body, false);
+  }
+  return r;
+}
+
+// ---------- Playback ----------
+async function pickDevice() {
+  const r = await api("GET", "/me/player/devices");
+  if (!r.ok) throw new Error("Geräte konnten nicht geladen werden (" + r.status + ")");
+  const devices = (await r.json()).devices || [];
+  return devices.find(d => d.is_active)
+      || devices.find(d => d.type === "Smartphone")
+      || devices[0];
+}
+async function playTrack(id) {
+  const device = await pickDevice();
+  if (!device) throw new Error("Kein Spotify-Gerät gefunden. Spotify-App öffnen, kurz irgendeinen Song starten, dann zurück hierher.");
+  const r = await api("PUT", "/me/player/play?device_id=" + device.id, { uris: ["spotify:track:" + id] });
+  if (r.status === 403) throw new Error("Spotify Premium wird benötigt.");
+  if (!r.ok) throw new Error("Abspielen fehlgeschlagen (" + r.status + "). Spotify-App öffnen und erneut scannen.");
+}
+async function togglePause() {
+  showError("");
+  const r = await api("PUT", paused ? "/me/player/play" : "/me/player/pause");
+  if (!r.ok) { showError("Steuerung fehlgeschlagen (" + r.status + ")"); return; }
+  paused = !paused;
+  $("toggleBtn").textContent = paused ? "Weiter" : "Pause";
+  $("playState").textContent = paused ? "Pausiert" : "Läuft…";
+  $("s-play").classList.toggle("paused", paused);
+}
+
+// ---------- QR parsing: Spotify links, URIs, #t=ID or bare ID ----------
+function parseTrackId(text) {
+  const m = text.match(/track[\/:]([A-Za-z0-9]{22})/)
+         || text.match(/[#?&]t=([A-Za-z0-9]{22})/)
+         || text.trim().match(/^([A-Za-z0-9]{22})$/);
+  return m ? m[1] : null;
+}
+
+// ---------- Scanner ----------
+async function startScan() {
+  showError("");
+  show("s-scan");
+  scanner = new Html5Qrcode("reader");
+  try {
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onScan,
+      () => {}
+    );
+  } catch (e) {
+    show("s-home");
+    showError("Kamera nicht verfügbar. Kamerazugriff in den Einstellungen erlauben.");
+  }
+}
+async function stopScan() {
+  if (scanner) {
+    try { await scanner.stop(); } catch {}
+    scanner = null;
+  }
+}
+let handling = false;
+async function onScan(text) {
+  if (handling) return;
+  const id = parseTrackId(text);
+  if (!id) { showError("Kein Spotify-Song in diesem QR-Code."); return; }
+  handling = true;
+  await stopScan();
+  try {
+    await playTrack(id);
+    paused = false;
+    $("toggleBtn").textContent = "Pause";
+    $("playState").textContent = "Läuft…";
+    $("s-play").classList.remove("paused");
+    showError("");
+    show("s-play");
+  } catch (e) {
+    show("s-home");
+    showError(e.message);
+  } finally {
+    handling = false;
+  }
+}
+
+// ---------- Wiring ----------
+$("redirectUri").textContent = REDIRECT_URI;
+$("saveSetup").onclick = () => {
+  const id = $("clientId").value.trim();
+  if (!id) return;
+  store.set("hs_client_id", id);
+  show("s-login");
+};
+$("loginBtn").onclick = () => login();
+$("resetBtn").onclick = () => { store.del("hs_client_id"); show("s-setup"); };
+$("logoutBtn").onclick = () => {
+  ["hs_access", "hs_refresh", "hs_expires"].forEach(store.del);
+  show("s-login");
+};
+$("scanBtn").onclick = startScan;
+$("cancelScan").onclick = async () => { await stopScan(); show("s-home"); };
+$("nextBtn").onclick = startScan;
+$("toggleBtn").onclick = togglePause;
+
+(async function init() {
+  if (!store.get("hs_client_id")) { show("s-setup"); return; }
+  try { await handleRedirect(); } catch (e) { showError(e.message); }
+  show(store.get("hs_refresh") ? "s-home" : "s-login");
+})();
+</script>
+</body>
+</html>
