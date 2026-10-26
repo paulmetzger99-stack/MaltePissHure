@@ -67,7 +67,7 @@
   <p>Spotify-App einmal öffnen, dann Karte scannen.</p>
   <button id="scanBtn">Karte scannen</button>
   <button class="link" id="logoutBtn">Abmelden</button>
-  <p class="note">Version 4</p>
+  <p class="note">Version 5</p>
 </section>
 
 <!-- Camera -->
@@ -198,36 +198,56 @@ async function playTrack(id) {
     await api("PUT", "/me/player", { device_ids: [device.id], play: false });
     await sleep(800);
   }
-  // Send the play command once (re-sending can abort loading)
-  const r = await api("PUT", "/me/player/play?device_id=" + device.id, { uris: ["spotify:track:" + id] });
-  if (r.status === 403) throw new Error("Spotify Premium wird benötigt. " + await spotifyError(r));
-  if (!r.ok) throw new Error("Abspielen fehlgeschlagen (" + r.status + " " + await spotifyError(r) + "). Spotify-App auf dem Handy öffnen und erneut scannen.");
+  // Look up the track: playable in this country? which album? (Spotify may
+  // swap in a regional copy of the track, so use the uri it returns)
+  let trackUri = "spotify:track:" + id, albumUri = null;
+  const t = await api("GET", "/tracks/" + id + "?market=from_token");
+  if (t.ok) {
+    const j = await t.json();
+    if (j.is_playable === false) throw new Error("Dieser Song ist in deinem Land bei Spotify nicht abspielbar.");
+    trackUri = j.uri || trackUri;
+    albumUri = j.album && j.album.uri;
+  }
 
-  // Wait up to 6 s for Spotify to really play. If the card's song is loaded
-  // but stays paused, send a plain resume command once.
+  // Try several ways to start the song, stop at the first one that plays
+  const log = [];
+  const methods = [];
+  if (albumUri) methods.push(["Album", async () =>
+    api("PUT", "/me/player/play?device_id=" + device.id, { context_uri: albumUri, offset: { uri: trackUri } })]);
+  methods.push(["Warteschlange", async () => {
+    const q = await api("POST", "/me/player/queue?device_id=" + device.id + "&uri=" + encodeURIComponent(trackUri));
+    if (!q.ok) return q;
+    await sleep(400);
+    return api("POST", "/me/player/next?device_id=" + device.id);
+  }]);
+  methods.push(["Einzeltrack", async () =>
+    api("PUT", "/me/player/play?device_id=" + device.id, { uris: [trackUri] })]);
+
+  for (const [name, send] of methods) {
+    const r = await send();
+    if (r.status === 403) throw new Error("Spotify Premium wird benötigt. " + await spotifyError(r));
+    if (!r.ok) { log.push(name + ": Fehler " + r.status + " " + await spotifyError(r)); continue; }
+    const state = await waitForPlay(device.id, [id, trackUri.split(":").pop()], 4000);
+    if (state === true) return device.name + " (Methode: " + name + ")";
+    log.push(name + ": angenommen, " + (state
+      ? "spielt nicht" + (state.item ? "" : ", Player leer")
+      : "kein Player aktiv"));
+  }
+  throw new Error("Abspielen hat mit keiner Methode geklappt. Gerät: " + device.name +
+    ". " + log.join(" | "));
+}
+async function waitForPlay(deviceId, ids, ms) {
+  // Only counts if the card's song (not some earlier song) is playing on the phone
   const start = Date.now();
-  let state = null, resumed = false;
-  while (Date.now() - start < 6000) {
+  let state = null;
+  while (Date.now() - start < ms) {
     await sleep(500);
     state = await playerState();
-    if (state && state.is_playing && state.device && state.device.id === device.id) return device.name;
-    const loaded = state && state.item && state.item.id === id;
-    if (loaded && !state.is_playing && !resumed && Date.now() - start > 1500) {
-      resumed = true;
-      await api("PUT", "/me/player/play?device_id=" + device.id);
-    }
+    const item = state && state.item;
+    const isCardSong = item && (ids.includes(item.id) || (item.linked_from && ids.includes(item.linked_from.id)));
+    if (state && state.is_playing && state.device && state.device.id === deviceId && isCardSong) return true;
   }
-  const loaded = state && state.item && state.item.id === id;
-  throw new Error(
-    "Spotify hat den Befehl angenommen, spielt aber nicht. " +
-    "Gerät: " + device.name + " (" + device.type + ", war aktiv: " + (device.is_active ? "ja" : "nein") + "). " +
-    "Status danach: " + (state
-      ? ("spielt: " + (state.is_playing ? "ja" : "nein") +
-         ", auf: " + (state.device ? state.device.name : "?") +
-         ", Karten-Song geladen: " + (loaded ? "ja" : "nein") +
-         ", Weiter-Befehl gesendet: " + (resumed ? "ja" : "nein"))
-      : "kein Player aktiv") + "."
-  );
+  return state;
 }
 async function playerState() {
   const r = await api("GET", "/me/player");
