@@ -7,45 +7,100 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hitster">
-<meta name="theme-color" content="#111111">
+<meta name="theme-color" content="#06141c">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&display=swap" rel="stylesheet">
 <title>Hitster</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-  :root { --bg:#111; --fg:#f2f2f2; --muted:#9a9a9a; --accent:#ff2e7e; --card:#1e1e1e; }
-  * { box-sizing:border-box; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-  body { padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom); display:flex; flex-direction:column; }
-  .screen { display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:18px; text-align:center; }
-  .screen.active { display:flex; }
-  h1 { margin:0; font-size:32px; letter-spacing:1px; }
-  p { margin:0; color:var(--muted); line-height:1.4; max-width:340px; }
-  button { font:inherit; font-size:20px; font-weight:600; border:0; border-radius:14px; padding:16px 28px;
-    background:var(--accent); color:#fff; min-width:220px; }
-  button.secondary { background:var(--card); color:var(--fg); }
-  button:active { opacity:.7; }
-  input { font:inherit; font-size:16px; width:100%; max-width:340px; padding:12px; border-radius:10px;
-    border:1px solid #333; background:var(--card); color:var(--fg); }
-  code { font-size:13px; background:var(--card); padding:8px; border-radius:8px; word-break:break-all; display:block; max-width:340px; }
-  #reader { width:100%; max-width:420px; border-radius:14px; overflow:hidden; }
-  #error { display:none; background:#5a1a1a; color:#ffd6d6; padding:12px; border-radius:10px; margin-top:12px; text-align:center; }
+  :root {
+    --ink:#06141c; --fg:#f4fbff; --muted:rgba(244,251,255,.72);
+    --sea:#19b6d6; --sun:#e8ff3a; --glass:rgba(255,255,255,.12); --line:rgba(255,255,255,.22);
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--ink); color:var(--fg);
+    font-family:"Bricolage Grotesque",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  body { overflow:hidden; }
+
+  /* photo background, darkened toward the bottom where the controls sit */
+  .bg { position:fixed; inset:0; background:url(photo.jpg) center 20%/cover no-repeat; transition:filter .6s, transform .6s; }
+  .bg::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(180deg, rgba(6,20,28,.15) 0%, rgba(6,20,28,.35) 40%, rgba(6,20,28,.92) 72%, var(--ink) 100%); }
+  body.dim .bg { filter:blur(22px) saturate(1.3); transform:scale(1.15); }
+  body.dim .bg::after { background:rgba(6,20,28,.62); }
+
+  .wrap { position:relative; height:100%; display:flex; flex-direction:column;
+    padding:calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 24px); }
+  .screen { display:none; flex:1; flex-direction:column; align-items:center; gap:16px; text-align:center; }
+  .screen.active { display:flex; animation:rise .45s cubic-bezier(.2,.8,.2,1); }
+  .bottom { justify-content:flex-end; }
+  .center { justify-content:center; }
+  @keyframes rise { from { opacity:0; transform:translateY(14px); } }
+
+  h1 { margin:0; font-weight:800; font-size:clamp(54px,17vw,84px); line-height:.9; letter-spacing:-.04em;
+    text-shadow:0 4px 30px rgba(0,0,0,.35); }
+  h1 span { color:var(--sun); }
+  h2 { margin:0; font-weight:800; font-size:32px; letter-spacing:-.02em; }
+  p { margin:0; color:var(--muted); line-height:1.4; max-width:340px; font-weight:500; }
+
+  button { font:inherit; font-size:20px; font-weight:800; border:0; border-radius:999px; padding:18px 30px;
+    background:var(--sun); color:var(--ink); width:100%; max-width:340px; cursor:pointer;
+    box-shadow:0 10px 30px rgba(232,255,58,.25); transition:transform .12s; }
+  button:active { transform:scale(.97); }
+  button.ghost { background:var(--glass); color:var(--fg); box-shadow:none; border:1px solid var(--line);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+  button.link { background:none; box-shadow:none; color:var(--muted); font-size:15px; font-weight:500;
+    padding:6px; width:auto; text-decoration:underline; text-underline-offset:3px; }
+  .row { display:flex; gap:12px; width:100%; max-width:340px; }
+  .row button { flex:1; padding:16px 10px; font-size:18px; }
+
+  input { font:inherit; font-size:16px; width:100%; max-width:340px; padding:14px 18px; border-radius:16px;
+    border:1px solid var(--line); background:rgba(6,20,28,.6); color:var(--fg); }
+  code { font-size:12px; background:rgba(6,20,28,.6); border:1px solid var(--line); padding:10px; border-radius:12px;
+    word-break:break-all; display:block; max-width:340px; }
   .note { font-size:13px; }
-  .pulse { font-size:96px; animation:pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse { 50% { transform:scale(1.15); } }
-  .paused .pulse { animation:none; opacity:.4; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
-  .row button { min-width:150px; }
-  .link { background:none; color:var(--muted); font-size:14px; font-weight:400; min-width:0; padding:8px; text-decoration:underline; }
+  .ver { font-size:11px; opacity:.5; }
+
+  #error { display:none; position:relative; z-index:2; background:rgba(120,20,30,.85); color:#ffe1e4;
+    padding:12px 16px; border-radius:16px; text-align:center; font-weight:500; backdrop-filter:blur(10px); }
+
+  /* scanner */
+  .viewfinder { position:relative; width:100%; max-width:360px; aspect-ratio:1; border-radius:28px; overflow:hidden;
+    background:#000; box-shadow:0 0 0 2px var(--sun), 0 20px 60px rgba(0,0,0,.5); }
+  #reader { width:100%; height:100%; }
+  #reader video { width:100% !important; height:100% !important; object-fit:cover; }
+  #reader img, #reader__dashboard, #reader__header_message { display:none !important; }
+
+  /* spinning record with the photo as label */
+  .record { position:relative; width:min(72vw,300px); aspect-ratio:1; border-radius:50%;
+    background:repeating-radial-gradient(circle at 50% 50%, #111 0 2px, #1c1c1c 2px 4px);
+    box-shadow:0 30px 80px rgba(0,0,0,.6), inset 0 0 0 6px #0a0a0a;
+    animation:spin 2.4s linear infinite; }
+  .record::before { content:""; position:absolute; inset:0; border-radius:50%;
+    background:conic-gradient(from 30deg, transparent 0 20%, rgba(255,255,255,.12) 25%, transparent 32% 70%, rgba(255,255,255,.08) 75%, transparent 82%); }
+  .record .label { position:absolute; inset:27%; border-radius:50%; background:url(label.jpg) center/cover;
+    box-shadow:0 0 0 4px var(--sun); }
+  .record .hole { position:absolute; left:50%; top:50%; width:10px; height:10px; margin:-5px; border-radius:50%; background:var(--ink); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .paused .record { animation-play-state:paused; }
+  .eq { display:flex; gap:5px; height:26px; align-items:flex-end; }
+  .eq i { width:6px; background:var(--sun); border-radius:3px; animation:eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2){animation-delay:-.3s} .eq i:nth-child(3){animation-delay:-.6s} .eq i:nth-child(4){animation-delay:-.15s}
+  @keyframes eq { 0%,100%{height:6px} 50%{height:26px} }
+  .paused .eq i { animation:none; height:6px; }
+  .spacer { flex:1; }
 </style>
 </head>
 <body>
+<div class="bg"></div>
+<div class="wrap">
 <div id="error"></div>
 
 <!-- First start: enter Spotify client ID -->
-<section class="screen" id="s-setup">
-  <h1>Setup</h1>
+<section class="screen bottom" id="s-setup">
+  <h2>Setup</h2>
   <p>Spotify Client ID aus dem Developer Dashboard eintragen.</p>
   <input id="clientId" placeholder="Client ID" autocapitalize="off" autocorrect="off" spellcheck="false">
   <p class="note">Diese Redirect URI muss im Dashboard eingetragen sein:</p>
@@ -54,37 +109,43 @@
 </section>
 
 <!-- Login -->
-<section class="screen" id="s-login">
-  <h1>Hitster</h1>
-  <p>Mit Spotify (Premium) anmelden.</p>
+<section class="screen bottom" id="s-login">
+  <h1>Hit<span>ster</span></h1>
+  <p>Mit Spotify (Premium) anmelden und loslegen.</p>
   <button id="loginBtn">Mit Spotify anmelden</button>
   <button class="link" id="resetBtn">Client ID ändern</button>
 </section>
 
 <!-- Ready to scan -->
-<section class="screen" id="s-home">
-  <h1>Hitster</h1>
-  <p>Spotify-App einmal öffnen, dann Karte scannen.</p>
+<section class="screen bottom" id="s-home">
+  <h1>Hit<span>ster</span></h1>
+  <p>Spotify-App kurz öffnen, dann Karte scannen.</p>
   <button id="scanBtn">Karte scannen</button>
   <button class="link" id="logoutBtn">Abmelden</button>
-  <p class="note">Version 5</p>
+  <p class="ver">v6</p>
 </section>
 
 <!-- Camera -->
-<section class="screen" id="s-scan">
-  <div id="reader"></div>
-  <button class="secondary" id="cancelScan">Abbrechen</button>
+<section class="screen center" id="s-scan">
+  <h2>Karte scannen</h2>
+  <div class="viewfinder"><div id="reader"></div></div>
+  <p>QR-Code ins Feld halten</p>
+  <button class="ghost" id="cancelScan">Abbrechen</button>
 </section>
 
 <!-- Playing -->
-<section class="screen" id="s-play">
-  <div class="pulse">♪</div>
-  <p id="playState">Läuft…</p>
+<section class="screen center" id="s-play">
+  <div class="spacer"></div>
+  <div class="record"><div class="label"></div></div>
+  <div class="eq"><i></i><i></i><i></i><i></i></div>
+  <h2 id="playState">Welches Jahr?</h2>
+  <div class="spacer"></div>
   <div class="row">
-    <button class="secondary" id="toggleBtn">Pause</button>
-    <button id="nextBtn">Nächste Karte</button>
+    <button class="ghost" id="toggleBtn">Pause</button>
+    <button id="nextBtn">Nächste</button>
   </div>
 </section>
+</div>
 
 <script>
 const SCOPES = "user-modify-playback-state user-read-playback-state";
@@ -101,6 +162,7 @@ let scanner = null, paused = false;
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
   $(id).classList.add("active");
+  document.body.classList.toggle("dim", id === "s-scan" || id === "s-play");
 }
 function showError(msg) {
   const e = $("error");
@@ -209,32 +271,26 @@ async function playTrack(id) {
     albumUri = j.album && j.album.uri;
   }
 
-  // Try several ways to start the song, stop at the first one that plays
-  const log = [];
+  // Start the album at this track (the method that works reliably on the phone);
+  // fall back to queue + skip if Spotify does not start playing
   const methods = [];
-  if (albumUri) methods.push(["Album", async () =>
-    api("PUT", "/me/player/play?device_id=" + device.id, { context_uri: albumUri, offset: { uri: trackUri } })]);
-  methods.push(["Warteschlange", async () => {
+  if (albumUri) methods.push(() =>
+    api("PUT", "/me/player/play?device_id=" + device.id, { context_uri: albumUri, offset: { uri: trackUri } }));
+  methods.push(async () => {
     const q = await api("POST", "/me/player/queue?device_id=" + device.id + "&uri=" + encodeURIComponent(trackUri));
     if (!q.ok) return q;
     await sleep(400);
     return api("POST", "/me/player/next?device_id=" + device.id);
-  }]);
-  methods.push(["Einzeltrack", async () =>
-    api("PUT", "/me/player/play?device_id=" + device.id, { uris: [trackUri] })]);
-
-  for (const [name, send] of methods) {
+  });
+  let last = "";
+  for (const send of methods) {
     const r = await send();
     if (r.status === 403) throw new Error("Spotify Premium wird benötigt. " + await spotifyError(r));
-    if (!r.ok) { log.push(name + ": Fehler " + r.status + " " + await spotifyError(r)); continue; }
-    const state = await waitForPlay(device.id, [id, trackUri.split(":").pop()], 4000);
-    if (state === true) return device.name + " (Methode: " + name + ")";
-    log.push(name + ": angenommen, " + (state
-      ? "spielt nicht" + (state.item ? "" : ", Player leer")
-      : "kein Player aktiv"));
+    if (!r.ok) { last = r.status + " " + await spotifyError(r); continue; }
+    if (await waitForPlay(device.id, [id, trackUri.split(":").pop()], 4000) === true) return device.name;
+    last = "Spotify spielt nicht";
   }
-  throw new Error("Abspielen hat mit keiner Methode geklappt. Gerät: " + device.name +
-    ". " + log.join(" | "));
+  throw new Error("Abspielen hat nicht geklappt (" + last + "). Spotify-App auf dem Handy öffnen und erneut scannen.");
 }
 async function waitForPlay(deviceId, ids, ms) {
   // Only counts if the card's song (not some earlier song) is playing on the phone
@@ -260,7 +316,7 @@ async function togglePause() {
   if (!r.ok) { showError("Steuerung fehlgeschlagen (" + r.status + ")"); return; }
   paused = !paused;
   $("toggleBtn").textContent = paused ? "Weiter" : "Pause";
-  $("playState").textContent = paused ? "Pausiert" : "Läuft";
+  $("playState").textContent = paused ? "Pausiert" : "Welches Jahr?";
   $("s-play").classList.toggle("paused", paused);
 }
 
@@ -306,7 +362,7 @@ async function onScan(text) {
     const deviceName = await playTrack(id);
     paused = false;
     $("toggleBtn").textContent = "Pause";
-    $("playState").textContent = "Läuft auf: " + deviceName;
+    $("playState").textContent = "Welches Jahr?";
     $("s-play").classList.remove("paused");
     showError("");
     show("s-play");
