@@ -197,10 +197,27 @@ async function playTrack(id) {
     await api("PUT", "/me/player", { device_ids: [device.id], play: false });
     await sleep(800);
   }
-  const r = await api("PUT", "/me/player/play?device_id=" + device.id, { uris: ["spotify:track:" + id] });
-  if (r.status === 403) throw new Error("Spotify Premium wird benötigt. " + await spotifyError(r));
-  if (!r.ok) throw new Error("Abspielen fehlgeschlagen (" + r.status + " " + await spotifyError(r) + "). Spotify-App auf dem Handy öffnen und erneut scannen.");
-  return device.name;
+  // Send play command, then check that Spotify is really playing; retry once
+  let state = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const r = await api("PUT", "/me/player/play?device_id=" + device.id, { uris: ["spotify:track:" + id] });
+    if (r.status === 403) throw new Error("Spotify Premium wird benötigt. " + await spotifyError(r));
+    if (!r.ok) throw new Error("Abspielen fehlgeschlagen (" + r.status + " " + await spotifyError(r) + "). Spotify-App auf dem Handy öffnen und erneut scannen.");
+    await sleep(1500);
+    state = await playerState();
+    if (state && state.is_playing && state.device && state.device.id === device.id) return device.name;
+  }
+  throw new Error(
+    "Spotify hat den Befehl angenommen, spielt aber nicht. " +
+    "Gerät: " + device.name + " (" + device.type + ", war aktiv: " + (device.is_active ? "ja" : "nein") + "). " +
+    "Status danach: " + (state ? ("spielt: " + (state.is_playing ? "ja" : "nein") + ", auf: " + (state.device ? state.device.name : "?")) : "kein Player aktiv") + ". " +
+    "Spotify-App auf dem Handy öffnen, einen Song laufen lassen und direkt erneut scannen."
+  );
+}
+async function playerState() {
+  const r = await api("GET", "/me/player");
+  if (r.status !== 200) return null;
+  try { return await r.json(); } catch { return null; }
 }
 async function togglePause() {
   showError("");
